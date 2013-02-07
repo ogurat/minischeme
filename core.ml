@@ -1,0 +1,373 @@
+(* minischeme core.ml *)
+open Syntax
+
+(* Expressed values *)
+type exval = 
+    IntV of int
+  | BoolV of bool
+  | SymbolV of id
+  | ProcV of id list * bodyexp * env
+  | PrimV of (exval list -> exval)  (* パラメータは　dnvalとしない *)
+  | PairV of dnval * dnval
+  | EmptyListV
+  | UnitV
+  | UnboundV
+
+(* Denoted values *)
+and dnval = exval ref
+
+and env = 
+    EmptyEnv
+  | ExtendEnv of id list * dnval array * env
+
+
+(* pretty printing *)
+let rec printval = function
+    IntV i -> print_int i
+  | BoolV i -> print_string (if i then "#t" else "#f")
+  | SymbolV s -> print_string s
+  | ProcV (args, body, env) ->
+      print_string "proc(";
+      List.iter (fun x -> print_string (" " ^ x)) args;
+      print_string ")"
+  | PrimV _ -> print_string "primitive"
+  | PairV (a, b) -> print_string "("; printval !a; pppair !b; print_string ")"
+  | EmptyListV -> print_string "()"
+  | UnitV -> print_string ""
+  | UnboundV -> print_string "*unbound*"
+
+and pppair = function(* PairVの第2要素 *)
+    EmptyListV -> () 
+  | PairV (a, b) -> print_string " "; printval !a; pppair !b
+  | arg -> print_string (" . "); printval arg
+   
+
+(* ---------------- environment -------------------------- *)
+
+exception UnboundVar of string
+
+let empty_env () = EmptyEnv
+
+(* Syntax.id list -> dnval list -> env -> env *)
+let extend_env ids (dnvals: dnval list) (env:env) : env =
+  (* assumes List.length ids = List.length dnvals *)
+  ExtendEnv (ids, Array.of_list dnvals, env)
+
+
+(* letrec で使用 *)
+
+let extend_env_rec syms procs env =
+  let vec = Array.make (List.length syms) (ref UnboundV) in
+  let newenv = ExtendEnv (syms, vec, env) in
+  let rec loop f i = function
+      [] -> ()
+    | x :: ls -> f i x; loop f (i + 1) ls in
+  loop (fun i (ids, body) -> vec.(i) <- ref (ProcV (ids, body, newenv))) 0 procs;
+  newenv
+
+
+let rec lookup id =
+   let rec list_pos c = function
+       [] -> None
+     | m :: rest -> if id = m then Some c else list_pos (c + 1) rest in
+   function
+     EmptyEnv -> raise (UnboundVar id)
+   | ExtendEnv (ids, dnvals, rest) -> 
+       match list_pos 0 ids with
+         | Some x -> dnvals.(x)
+         | None   -> lookup id rest
+
+
+
+(* --------------- interpreter core ---------------------- *)
+
+
+let rec eval_exp env = function
+    IntExp i -> IntV i
+  | BoolExp v -> BoolV v
+  | VarExp sym -> !(lookup sym env)
+  | UnitExp -> UnitV
+(*  | PrimExp (p, es) -> 
+      let args = eval_prim_operands env es in
+      apply_prim p args *)
+  | IfExp (pred, e1, e2) -> 
+      eval_exp env 
+         (match eval_exp env pred with
+            BoolV false -> e2
+          | _           -> e1)
+(*
+  | AndExp args ->
+      let rec make result = function
+        | [] -> result
+        | a :: rest ->
+            (match result with 
+              | BoolV false -> result | _ -> make (eval_exp env a) rest)
+      in make (BoolV true) args
+*)
+  | OrExp args ->
+      let rec loop result = function
+        | [] -> result
+        | a :: rest ->
+            (match result with 
+              | BoolV false ->  loop (eval_exp env a) rest | _ -> result)
+      in loop (BoolV false) args
+(*  | Define (id, exp) ->
+      let v = eval_exp env exp in
+      let env' = extend_env_rec [id] [exp] env in *)
+(*  | LetExp (bs, body) -> 
+      let ids, args = List.split bs in
+      let args' = List.map (eval_exp env) args in
+      let env' = extend_env2 ids args' env in
+      eval_body env' body
+  | NamedLetExp (name, bs, body) -> 
+      let ids, args = List.split bs in
+      let args' = List.map (eval_exp env) args in
+      let env' = extend_env2 ids args' env in
+      let env'' = extend_env_rec [name] [(ids, body)] env' in
+      eval_body env'' body *)
+
+  | CondExp vs ->
+      let rec loop = function
+	| [] -> UnitV
+        | i :: rest ->
+            (match i with
+              | Case (cond, body) ->
+                  (match (eval_exp env cond) with
+                    | BoolV false -> loop rest
+                    | v           -> eval_body env body)
+              | Arrow (cond, fn) ->
+		  (match (eval_exp env cond) with
+                    | BoolV false -> loop rest
+                    | v           -> eval_apply (eval_exp env fn) [v])
+	      | Else (body) -> eval_body env body)
+      in loop vs
+  | LambdaExp (ids, body) -> ProcV (ids, body, env)
+  | ApplyExp (op, operands) -> (* operands: exp list 引数 *)
+      let v = eval_exp env op in
+      let args = List.map (eval_exp env) operands in
+      eval_apply v args
+  | LetrecExp (procdefs, body) ->
+      let ids, proc = List.split procdefs in
+      let newenv = extend_env_rec_exp ids (proc) env in
+      eval_body newenv body
+  | AssignExp (id, exp) ->
+      let arg = eval_exp env exp in
+      let idref = lookup id env in
+      begin idref := arg; arg end
+  | BeginExp body ->
+      eval_body env body
+  | QuoteExp exp ->
+      eval_sexp exp
+       
+and eval_sexp = function
+    Int x -> IntV x
+  | Bool x -> BoolV x
+  | Var x  -> SymbolV x
+  | List x ->
+    let rec loop = function
+      | [] -> EmptyListV
+      | (x::xs) -> PairV (ref (eval_sexp x), ref (loop xs)) in
+    loop x
+
+(*  env -> exval -> Syntax.exp list -> exval *)
+and eval_apply  (proc:exval) (operands: exval list) =
+  (match proc with
+    | ProcV (ids, body, envproc) -> (* envproc: lambdaを評価したときの環境 *)
+        (* パラメータの数のチェックが必要 *)
+        if List.length ids = List.length operands then
+          eval_body (extend_env2 ids operands envproc) body
+	else 
+          failwith "# of parameters and arguments don't match"
+    | PrimV closure ->
+        (* let args = eval_prim_operands env operands in *)
+        closure operands
+    | _ -> failwith "Applying a non-procedure value")
+
+and eval_body env = function
+  | S e -> eval_exp env e
+  | P (e,rest) -> eval_exp env e;
+                  eval_body env rest
+
+(*
+and eval_operandss env =
+    List.map (fun x -> ref (eval_exp env x))
+*)
+and eval_prim_operands env = (* リストとして渡されたexpを評価し、exvalのリストを返す *)
+    List.map (eval_exp env)
+
+(* Syntax.id list -> exval list -> env -> env *)
+(* envでexpsを評価し、その結果でenvprocを拡張する *)
+and extend_env2 (ids: id list) (exps: exval list) envproc: env = 
+  let dnvals = List.map (fun x -> ref x) exps in
+  extend_env ids dnvals envproc
+
+and extend_env_rec_exp syms explist env =
+  let vec = Array.make (List.length syms) (ref UnboundV) in
+  let newenv = ExtendEnv (syms, vec, env) in
+  let rec loop f i = function
+      [] -> ()
+    | x :: ls -> f i x; loop f (i + 1) ls in
+  loop (fun i exp -> vec.(i) <- ref (eval_exp newenv exp)) 0 explist;
+  newenv
+
+
+
+(* initial env *)
+
+let global_env =
+  let v = ["i",IntV 1; "ii",IntV 2; "iii",IntV 3; "iv",IntV 4; "v",IntV 5; "x",IntV 10;
+            "false", BoolV false; "true",BoolV true] in
+  let (ids, vs) = List.split v in
+  let vs' = List.map (fun x -> ref x) vs in
+  extend_env ids vs' 
+    (empty_env())
+(*
+let global_env =
+  extend_env
+    ["false"; "true"]
+    [ref (BoolV false); ref (BoolV true)]
+    global_env
+*)
+
+let eqp x y =
+  match (x, y) with
+  | (BoolV a, BoolV b) ->  a = b
+  | (SymbolV s, SymbolV s2) when s = s2 ->  true
+  | (EmptyListV, EmptyListV) ->  true
+(*  | VectorV a, VectorV b when a == b ->  true *)
+  | _ ->  false
+
+let eqvp x y =
+  match (x, y) with
+  | a,b when (eqp a b) -> true
+  | (IntV x, IntV y) when x = y -> true
+  | _ ->  false
+
+let rec equalp x y =
+  match (x, y) with
+  | PairV (a, b), PairV (c, d) -> (equalp !a !c) && (equalp !b !d)
+(*  | VectorV a, VectorV b -> false *)
+  | a,b when (eqvp a b) ->  true
+  | _ ->  false
+
+let global_env =
+  let prims = [
+  "+",(fun args ->
+    let rec loop = function
+       (* | [] -> 0 *)
+       (* | [IntV i] -> i  *)
+      | [IntV i; IntV j] -> i + j
+      | IntV a :: tl -> a + loop tl 
+      | _ -> failwith "Arity mismatch: +"
+    in IntV (loop args));
+  "-",(fun args ->
+    let rec f = function
+        [IntV i; IntV j] -> i - j
+      | _ -> failwith "Arity mismatch: -"
+    in IntV (f args));
+  "*",(fun args ->
+    let rec loop = function
+        [IntV i; IntV j] -> i * j
+      | IntV a :: tl -> a * loop tl 
+      | _ -> failwith "Arity mismatch: *"
+    in IntV (loop args));
+  "add1", (function
+      [IntV i] -> IntV (i + 1)
+    | _ -> failwith "Arity mismatch: add1");
+  "sub1", (function
+    | [IntV i] -> IntV (i - 1)
+    | _ -> failwith "Arity mismatch: sub1");
+  "=", (function
+    | [IntV i; IntV j] -> BoolV (i = j)
+    | _ -> failwith "Arity mismatch: =");
+  "<", (function
+      [IntV i; IntV j] -> BoolV (i < j)
+    | _ -> failwith "Arity mismatch: <");
+  ">", (function
+      [IntV i; IntV j] -> BoolV (i > j)
+    | _ -> failwith "Arity mismatch: >");
+  "not", (function 
+      [BoolV false] -> BoolV true
+    | [_]           -> BoolV false
+    | _ -> failwith "Arity mismatch: not");
+  "eq?", (function
+    | [a;b] -> BoolV (eqp a b)
+    | _ -> failwith "Arity mismatch: eq?");
+  "eqv?", (function
+    | [a;b] -> BoolV (eqvp a b)
+    | _ -> failwith "Arity mismatch: eqv?");
+  "equal?", (function
+    | [a;b] -> BoolV (equalp a b)
+    | _ -> failwith "Arity mismatch: equal?");
+  "cons", (function 
+    | [a; b] -> PairV (ref a, ref b)
+    | _ ->  failwith "Arity mismatch: cons");
+  "car", (function
+    | [PairV (a, _)] -> !a
+    | _ -> failwith "Arity mismatch: car");
+  "cdr", (function
+    | [PairV (_, b)] -> !b 
+    | _ -> failwith "Arity mismatch: cdr");
+  "set-car!", (function (* setcar *)
+      [PairV (a, _) as y; x] -> begin a := x; y end
+    | _ -> failwith "Arity mismatch: setcar");
+  "set-cdr!", (function (* setcdr *)
+      [PairV (_, b) as y; x] -> begin b := x; y end
+    | _ -> failwith "Arity mismatch: setcdr");
+  "null?", (function 
+      [EmptyListV] -> BoolV true
+    | [_] -> BoolV false
+    | _ -> failwith "Arity mismatch: null?");
+  "list", (fun args -> 
+    let rec make = function
+        [] -> EmptyListV
+      | a :: b -> PairV (ref a, ref (make b))
+    in make args);
+  "map", (function
+      [proc;l] ->
+        let rec map = (function
+          | EmptyListV -> EmptyListV
+          | PairV(x, rest) ->
+               PairV (ref (eval_apply proc [!x]), ref (map !rest))
+          | _ -> failwith "not pair: map")
+	in map l
+    | _ -> failwith "Arity mismatch: map");
+  "foldl", (function
+      [proc;init;l] ->
+        let rec fold accum = (function
+          | EmptyListV -> accum
+          | PairV(x, rest) ->
+              fold (eval_apply proc [!x;accum]) !rest
+          | _ -> failwith "not pair: foldl")
+        in fold init l
+    | _ -> failwith "Arity mismatch: foldl");
+  "foldr", (function
+      [proc;init;l] ->
+        let rec fold = (function
+          | EmptyListV -> init
+          | PairV(x, rest) ->
+              let a = fold !rest in
+              eval_apply proc [!x;a]
+          | _ -> failwith "not pair: foldr")
+        in fold l
+    | _ -> failwith "Arity mismatch: foldl");
+  "write", (function
+      [v] -> printval v; UnitV
+    | _ -> failwith "Arity mismatch: write");
+  "display", (function
+      [v] -> printval v; UnitV
+    | _ -> failwith "Arity mismatch: display");
+  ] in
+  let (ids, vs) = List.split prims in
+  let vs' = List.map (fun x -> ref (PrimV x)) vs in
+  extend_env ids vs' global_env
+
+
+
+let make_define_env a =
+  (* let (Defs aa) = a in *)
+  let ids, args = List.split a in
+  extend_env_rec_exp ids args  global_env
+
+
+let eval_program env (Prog e) = eval_exp env e
