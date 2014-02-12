@@ -87,7 +87,7 @@ let rec eval_exp env = function
   | BoolExp v -> BoolV v
   | VarExp sym -> !(lookup sym env)
   | UnitExp -> UnitV
-(*  | PrimExp (p, es) -> 
+(*  | PrimExp (p, es) ->
       let args = eval_prim_operands env es in
       apply_prim p args *)
   | IfExp (pred, e1, e2) -> 
@@ -114,7 +114,7 @@ let rec eval_exp env = function
 (*  | Define (id, exp) ->
       let v = eval_exp env exp in
       let env' = extend_env_rec [id] [exp] env in *)
-(*  | LetExp (bs, body) -> 
+(*  | LetExp (bs, body) ->
       let ids, args = List.split bs in
       let args' = List.map (eval_exp env) args in
       let env' = extend_env2 ids args' env in
@@ -170,12 +170,13 @@ and eval_sexp = function
     loop x
 
 (*  env -> exval -> Syntax.exp list -> exval *)
-and eval_apply  (proc:exval) (operands: exval list) =
+and eval_apply (proc:exval) (operands: exval list) =
   (match proc with
     | ProcV (ids, body, envproc) -> (* envproc: lambdaを評価したときの環境 *)
         (* パラメータの数のチェックが必要 *)
         if List.length ids = List.length operands then
-          eval_body (extend_env2 ids operands envproc) body
+	  let dnvals = List.map (fun x -> ref x) operands in
+          eval_body (extend_env ids dnvals envproc) body
 	else 
           failwith "# of parameters and arguments don't match"
     | PrimV closure ->
@@ -194,12 +195,6 @@ and eval_operandss env =
 *)
 and eval_prim_operands env = (* リストとして渡されたexpを評価し、exvalのリストを返す *)
     List.map (eval_exp env)
-
-(* Syntax.id list -> exval list -> env -> env *)
-(* envでexpsを評価し、その結果でenvprocを拡張する *)
-and extend_env2 (ids: id list) (exps: exval list) envproc: env = 
-  let dnvals = List.map (fun x -> ref x) exps in
-  extend_env ids dnvals envproc
 
 and extend_env_rec_exp syms explist env =
   let vec = Array.make (List.length syms) (ref UnboundV) in
