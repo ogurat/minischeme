@@ -20,8 +20,14 @@ open Syntax
 
 %start definitions
 %type <Syntax.definitions> definitions
+
+%start expression
+%type <Syntax.exp> expression
 %%
 
+
+expression :
+    Exp { $1 }
 
 toplevel :
     Exp { Prog $1 }
@@ -70,12 +76,12 @@ Sexplist :
 
 /*
 PrimOp :
-/*    PLUS { Plus }  | MINUS { Minus } | MUL { Mul }
-/*  | ADD1 { Add1 }  | SUB1 { Sub1 }
-/*  | EQ { Eq} | LT { Lt } | GT { Gt }
-/*  | SETCAR { Setcar } | SETCDR { Setcdr }
+    PLUS { Plus }  | MINUS { Minus } | MUL { Mul }
+  | ADD1 { Add1 }  | SUB1 { Sub1 }
+  | EQ { Eq} | LT { Lt } | GT { Gt }
+  | SETCAR { Setcar } | SETCDR { Setcdr }
   | NOT { Not } 
-/*  | AND { And }  | OR { Or }
+  | AND { And }  | OR { Or }
 */
 
 Bindings:

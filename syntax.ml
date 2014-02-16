@@ -34,7 +34,7 @@ type exp =
   | LambdaExp of lambdaexp
   | ApplyExp of exp * exp list
 (*  | LetExp of (id * exp) list * bodyexp *)
-(*  | NamedLetExp of id * (id * exp) list * bodyexp *)
+  | NamedLetExp of id * (id * exp) list * bodyexp
   | LetrecExp of (id * exp) list * bodyexp
 (*  | LetrecExp of (id * lambdaexp) list * bodyexp *)
   | CondExp of conditem list
@@ -55,15 +55,19 @@ type definitions = bind list
 
 
 
-let parseLet bs body =
-  let ids, args = List.split bs in
+let parseLet binds body =
+  let ids, args = List.split binds in
   let fn = LambdaExp (ids, body) in
   ApplyExp (fn, args)
 
-let parseNamedLet name bs body =
-  let ids, args = List.split bs in
-  let l = LetrecExp ([(name, LambdaExp(ids, body))], S (VarExp name)) in
+let parseNamedLet name binds body =
+  let ids, args = List.split binds in
+  let fn = LambdaExp(ids, body) in
+  let l = LetrecExp ([(name, fn)], S (VarExp name)) in
   ApplyExp (l, args) 
+
+let parseNamedLet' names binds body =
+  NamedLetExp (names, binds, body)
 
 let parseAnd args =
   let rec make = function

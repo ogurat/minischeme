@@ -22,24 +22,30 @@ and env =
 
 
 (* pretty printing *)
+let pplist =
+  let rec pprest = function
+      [] -> ""
+    | a :: b ->  " " ^ a ^ pprest b in
+  function
+      [] -> ""
+    | x :: rest -> "(" ^  x ^ pprest rest ^ ")"
+
 let rec printval = function
-    IntV i -> print_int i
-  | BoolV i -> print_string (if i then "#t" else "#f")
-  | SymbolV s -> print_string s
+    IntV i -> string_of_int i
+  | BoolV i -> (if i then "#t" else "#f")
+  | SymbolV s -> s
   | ProcV (args, body, env) ->
-      print_string "proc(";
-      List.iter (fun x -> print_string (" " ^ x)) args;
-      print_string ")"
-  | PrimV _ -> print_string "primitive"
-  | PairV (a, b) -> print_string "("; printval !a; pppair !b; print_string ")"
-  | EmptyListV -> print_string "()"
-  | UnitV -> print_string ""
-  | UnboundV -> print_string "*unbound*"
+       "#proc:" ^ (pplist args)
+  | PrimV _ -> "primitive"
+  | PairV (a, b) -> "(" ^ printval !a ^ pppair !b ^ ")"
+  | EmptyListV ->  "()"
+  | UnitV ->  "#void"
+  | UnboundV -> "*unbound*"
 
 and pppair = function(* PairVの第2要素 *)
-    EmptyListV -> () 
-  | PairV (a, b) -> print_string " "; printval !a; pppair !b
-  | arg -> print_string (" . "); printval arg
+    EmptyListV -> "" 
+  | PairV (a, b) ->  " " ^ printval !a ^ pppair !b
+  | arg ->  (" . ") ^ printval arg
    
 
 (* ---------------- environment -------------------------- *)
@@ -55,7 +61,7 @@ let extend_env ids (dnvals: dnval list) (env:env) : env =
 
 
 (* letrec で使用 *)
-
+(*
 let extend_env_rec syms procs env =
   let vec = Array.make (List.length syms) (ref UnboundV) in
   let newenv = ExtendEnv (syms, vec, env) in
@@ -64,7 +70,7 @@ let extend_env_rec syms procs env =
     | x :: ls -> f i x; loop f (i + 1) ls in
   loop (fun i (ids, body) -> vec.(i) <- ref (ProcV (ids, body, newenv))) 0 procs;
   newenv
-
+*)
 
 let rec lookup id =
    let rec list_pos c = function
@@ -86,6 +92,7 @@ let rec eval_exp env = function
     IntExp i -> IntV i
   | BoolExp v -> BoolV v
   | VarExp sym -> !(lookup sym env)
+  | QuoteExp exp -> eval_sexp exp
   | UnitExp -> UnitV
 (*  | PrimExp (p, es) ->
       let args = eval_prim_operands env es in
@@ -93,8 +100,7 @@ let rec eval_exp env = function
   | IfExp (pred, e1, e2) -> 
       eval_exp env 
          (match eval_exp env pred with
-            BoolV false -> e2
-          | _           -> e1)
+            BoolV false -> e2 | _ -> e1)
 (*
   | AndExp args ->
       let rec make result = function
@@ -114,18 +120,22 @@ let rec eval_exp env = function
 (*  | Define (id, exp) ->
       let v = eval_exp env exp in
       let env' = extend_env_rec [id] [exp] env in *)
+  | LambdaExp (ids, body) ->
+      ProcV (ids, body, env)
+  | ApplyExp (op, operands) -> (* operands: exp list 引数 *)
+      let proc = eval_exp env op in
+      let args = List.map (eval_exp env) operands in
+      eval_apply proc args
 (*  | LetExp (bs, body) ->
       let ids, args = List.split bs in
       let args' = List.map (eval_exp env) args in
       let env' = extend_env2 ids args' env in
-      eval_body env' body
-  | NamedLetExp (name, bs, body) -> 
-      let ids, args = List.split bs in
-      let args' = List.map (eval_exp env) args in
-      let env' = extend_env2 ids args' env in
-      let env'' = extend_env_rec [name] [(ids, body)] env' in
-      eval_body env'' body *)
-
+      eval_body env' body *)
+  | NamedLetExp (id, binds, body) -> (* 2014/2/16 oscheme/eval.mlからコピー  *)
+      let (ids, args) = List.split binds in
+      let fn = LambdaExp (ids, body) in
+      let a = extend_env_rec_exp [id] [fn] env in
+      eval_apply (eval_exp a (VarExp id)) (List.map (eval_exp env) args)
   | CondExp vs ->
       let rec loop = function
 	| [] -> UnitV
@@ -141,13 +151,8 @@ let rec eval_exp env = function
                     | v           -> eval_apply (eval_exp env fn) [v])
 	      | Else (body) -> eval_body env body)
       in loop vs
-  | LambdaExp (ids, body) -> ProcV (ids, body, env)
-  | ApplyExp (op, operands) -> (* operands: exp list 引数 *)
-      let v = eval_exp env op in
-      let args = List.map (eval_exp env) operands in
-      eval_apply v args
-  | LetrecExp (procdefs, body) ->
-      let ids, proc = List.split procdefs in
+  | LetrecExp (binds, body) ->
+      let ids, proc = List.split binds in
       let newenv = extend_env_rec_exp ids (proc) env in
       eval_body newenv body
   | AssignExp (id, exp) ->
@@ -156,8 +161,7 @@ let rec eval_exp env = function
       begin idref := arg; arg end
   | BeginExp body ->
       eval_body env body
-  | QuoteExp exp ->
-      eval_sexp exp
+
        
 and eval_sexp = function
     Int x -> IntV x
@@ -208,15 +212,16 @@ and extend_env_rec_exp syms explist env =
 
 
 (* initial env *)
-
+(*
 let global_env =
-  let v = ["i",IntV 1; "ii",IntV 2; "iii",IntV 3; "iv",IntV 4; "v",IntV 5; "x",IntV 10;
-            "false", BoolV false; "true",BoolV true] in
+
+  let v = [ "false", BoolV false; "true",BoolV true] in
   let (ids, vs) = List.split v in
-  let vs' = List.map (fun x -> ref x) vs in
+
+  let vs' = List.map (fun x -> ref x) [] in
   extend_env ids vs' 
     (empty_env())
-(*
+
 let global_env =
   extend_env
     ["false"; "true"]
@@ -355,7 +360,7 @@ let global_env =
   ] in
   let (ids, vs) = List.split prims in
   let vs' = List.map (fun x -> ref (PrimV x)) vs in
-  extend_env ids vs' global_env
+  extend_env ids vs' (empty_env ())
 
 
 
