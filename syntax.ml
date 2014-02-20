@@ -57,8 +57,7 @@ type definitions = bind list
 
 let parseLet binds body =
   let ids, args = List.split binds in
-  let fn = LambdaExp (ids, body) in
-  ApplyExp (fn, args)
+  ApplyExp (LambdaExp (ids, body), args)
 
 let parseNamedLet name binds body =
   let ids, args = List.split binds in

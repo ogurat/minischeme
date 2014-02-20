@@ -55,22 +55,14 @@ exception UnboundVar of string
 let empty_env () = EmptyEnv
 
 (* Syntax.id list -> dnval list -> env -> env *)
-let extend_env ids (dnvals: dnval list) (env:env) : env =
+let extend_env ids (dnvals: dnval list) (env: env) =
   (* assumes List.length ids = List.length dnvals *)
   ExtendEnv (ids, Array.of_list dnvals, env)
 
+let extend_env_exval ids exvals env =
+  let dnvals = List.map (fun x -> ref x) exvals in
+  ExtendEnv (ids, Array.of_list dnvals, env)
 
-(* letrec で使用 *)
-(*
-let extend_env_rec syms procs env =
-  let vec = Array.make (List.length syms) (ref UnboundV) in
-  let newenv = ExtendEnv (syms, vec, env) in
-  let rec loop f i = function
-      [] -> ()
-    | x :: ls -> f i x; loop f (i + 1) ls in
-  loop (fun i (ids, body) -> vec.(i) <- ref (ProcV (ids, body, newenv))) 0 procs;
-  newenv
-*)
 
 let rec lookup id =
    let rec list_pos c = function
@@ -134,7 +126,7 @@ let rec eval_exp env = function
   | NamedLetExp (id, binds, body) -> (* 2014/2/16 oscheme/eval.mlからコピー  *)
       let (ids, args) = List.split binds in
       let fn = LambdaExp (ids, body) in
-      let a = extend_env_rec_exp [id] [fn] env in
+      let a = extend_env_rec_exp env [id,fn] in
       eval_apply (eval_exp a (VarExp id)) (List.map (eval_exp env) args)
   | CondExp vs ->
       let rec loop = function
@@ -152,8 +144,7 @@ let rec eval_exp env = function
 	      | Else (body) -> eval_body env body)
       in loop vs
   | LetrecExp (binds, body) ->
-      let ids, proc = List.split binds in
-      let newenv = extend_env_rec_exp ids (proc) env in
+      let newenv = extend_env_rec_exp env binds in
       eval_body newenv body
   | AssignExp (id, exp) ->
       let arg = eval_exp env exp in
@@ -173,19 +164,16 @@ and eval_sexp = function
       | (x::xs) -> PairV (ref (eval_sexp x), ref (loop xs)) in
     loop x
 
-(*  env -> exval -> Syntax.exp list -> exval *)
-and eval_apply (proc:exval) (operands: exval list) =
+and eval_apply (proc: exval) (args: exval list) =
   (match proc with
     | ProcV (ids, body, envproc) -> (* envproc: lambdaを評価したときの環境 *)
         (* パラメータの数のチェックが必要 *)
-        if List.length ids = List.length operands then
-	  let dnvals = List.map (fun x -> ref x) operands in
-          eval_body (extend_env ids dnvals envproc) body
+        if List.length ids = List.length args then
+          eval_body (extend_env_exval ids args envproc) body
 	else 
           failwith "# of parameters and arguments don't match"
     | PrimV closure ->
-        (* let args = eval_prim_operands env operands in *)
-        closure operands
+        closure args
     | _ -> failwith "Applying a non-procedure value")
 
 and eval_body env = function
@@ -193,14 +181,8 @@ and eval_body env = function
   | P (e,rest) -> eval_exp env e;
                   eval_body env rest
 
-(*
-and eval_operandss env =
-    List.map (fun x -> ref (eval_exp env x))
-*)
-and eval_prim_operands env = (* リストとして渡されたexpを評価し、exvalのリストを返す *)
-    List.map (eval_exp env)
-
-and extend_env_rec_exp syms explist env =
+and extend_env_rec_exp env binds =
+  let syms, explist = List.split binds in
   let vec = Array.make (List.length syms) (ref UnboundV) in
   let newenv = ExtendEnv (syms, vec, env) in
   let rec loop f i = function
@@ -218,10 +200,10 @@ let global_env =
   let v = [ "false", BoolV false; "true",BoolV true] in
   let (ids, vs) = List.split v in
 
-  let vs' = List.map (fun x -> ref x) [] in
-  extend_env ids vs' 
+  extend_env_exval ids vs
     (empty_env())
-
+*)
+(*
 let global_env =
   extend_env
     ["false"; "true"]
@@ -254,8 +236,6 @@ let global_env =
   let prims = [
   "+",(fun args ->
     let rec loop = function
-       (* | [] -> 0 *)
-       (* | [IntV i] -> i  *)
       | [IntV i; IntV j] -> i + j
       | IntV a :: tl -> a + loop tl 
       | _ -> failwith "Arity mismatch: +"
@@ -363,11 +343,14 @@ let global_env =
   extend_env ids vs' (empty_env ())
 
 
+let extend_env_exp env binds =
+  let syms, exps = List.split binds in
+  let vs = List.map (eval_exp env) exps in
+  extend_env_exval syms vs env
 
-let make_define_env a =
-  (* let (Defs aa) = a in *)
-  let ids, args = List.split a in
-  extend_env_rec_exp ids args  global_env
+let make_define_env : bind list -> env =
+  extend_env_rec_exp global_env
 
 
 let eval_program env (Prog e) = eval_exp env e
+

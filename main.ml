@@ -14,12 +14,11 @@ let parse s =
 
 let eval s =
   let env = make_define_env [] in
-  let ex = (Parser.toplevel Lexer.main (Lexing.from_string s)) in
-  printval (eval_program env ex)
+  printval (eval_exp env (parse s))
 
 
-
-let make_genv _ =
+(*
+let make_genv_ _ =
 let lexin = 
   let fn = ref [] in
   Arg.parse [] (fun s -> fn := s :: !fn) "";
@@ -27,18 +26,32 @@ let lexin =
 in
 let a = Parser.definitions Lexer.main lexin in
   make_define_env a
+*)
 
+
+let withfile name proc =
+  let f = open_in name in
+  let a = proc f in
+  close_in f;  a
+
+
+let make_defs f =
+  Parser.definitions Lexer.main (Lexing.from_channel f)
+
+
+let main name =
+  let env = make_define_env (withfile name make_defs) in
 let run () =
-  Core.eval_program
-     (make_genv ())
+  eval_program
+     env
     (Parser.toplevel Lexer.main (Lexing.from_channel stdin))
-
+in
 let rec read_eval_print () =
   print_string "=> ";
   flush stdout;
   (
     try
-      print_string (Core.printval (run ()));
+      print_string (printval (run ()));
     with
       Core.UnboundVar s ->   Printf.printf "unbound: %s" s
     | Parsing.Parse_error -> print_string "parse error"
@@ -46,7 +59,13 @@ let rec read_eval_print () =
   );
   print_newline ();
   read_eval_print ()
+in
+read_eval_print ()
+
 
 (*
-let _ = read_eval_print ()
-*)
+let _ =
+  let fn = ref [] in
+  Arg.parse [] (fun s -> fn := s :: !fn) "";
+  main (List.hd !fn)
+ *)

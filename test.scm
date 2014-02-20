@@ -41,21 +41,28 @@
         (else x)))
 
 (define and3 (lambda (w x y)
-   (let ((disp (lambda (a) (display a) a)))
-     (and (disp w) (disp x) (disp y)))))
+  (let ((disp (lambda (a) (display a) a)))
+    (and (disp w) (disp x) (disp y)))))
 
 (define or3 (lambda (w x y)
-   (let ((disp (lambda (a) (display a) a)))
-     (or (disp w) (disp x) (disp y)))))
+  (let ((disp (lambda (a) (display a) a)))
+    (or (disp w) (disp x) (disp y)))))
 
 (define iter (lambda (x y) (+ x y)))
 
 (define letfib
   (lambda (n)
-    (let iter ((a 1) (b 0) (c n))
-      (if (= c 0)
+    (let iter ((a 1) (b 0) (count n))
+      (if (= count 0)
           b
-          (iter (+ a b) a (- c 1))))))
+          (iter (+ a b) a (- count 1))))))
+
+(define abc
+  (let f ((x '(1 2 3)) (y '(a b c d)))
+    (if (null? x) 'ghj (f (cdr x) (cdr y)))))
+
+
+
 
 (define (mapp proc l)
   (if (null? l)
@@ -72,6 +79,8 @@
     (let ((twice (lambda (f x) (f (f x))))
           (sq    (lambda (x) (* x x))))
       (twice sq x))))
+
+
 
 (define fac 
   (lambda (n)
