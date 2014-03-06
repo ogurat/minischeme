@@ -6,7 +6,7 @@ type exval =
     IntV of int
   | BoolV of bool
   | SymbolV of id
-  | ProcV of id list * bodyexp * env
+  | ProcV of id list * exp * env
   | PrimV of (exval list -> exval)  (* パラメータは　dnvalとしない *)
   | PairV of dnval * dnval
   | EmptyListV
@@ -115,14 +115,14 @@ let rec eval_exp env = function
   | LambdaExp (ids, body) ->
       ProcV (ids, body, env)
   | ApplyExp (op, operands) -> (* operands: exp list 引数 *)
-      let proc = eval_exp env op in
-      let args = List.map (eval_exp env) operands in
+      let proc = eval_exp env op
+      and args = List.map (eval_exp env) operands in
       eval_apply proc args
 (*  | LetExp (bs, body) ->
       let ids, args = List.split bs in
       let args' = List.map (eval_exp env) args in
       let env' = extend_env2 ids args' env in
-      eval_body env' body *)
+      eval_exp env' body *)
   | NamedLetExp (id, binds, body) -> (* 2014/2/16 oscheme/eval.mlからコピー  *)
       let (ids, args) = List.split binds in
       let fn = LambdaExp (ids, body) in
@@ -136,22 +136,25 @@ let rec eval_exp env = function
               | Case (cond, body) ->
                   (match (eval_exp env cond) with
                     | BoolV false -> loop rest
-                    | v           -> eval_body env body)
+                    | v           -> eval_exp env body)
               | Arrow (cond, fn) ->
 		  (match (eval_exp env cond) with
                     | BoolV false -> loop rest
                     | v           -> eval_apply (eval_exp env fn) [v])
-	      | Else (body) -> eval_body env body)
+	      | Else (body) -> eval_exp env body)
       in loop vs
   | LetrecExp (binds, body) ->
       let newenv = extend_env_rec_exp env binds in
-      eval_body newenv body
+      eval_exp newenv body
   | AssignExp (id, exp) ->
-      let arg = eval_exp env exp in
       let idref = lookup id env in
-      begin idref := arg; arg end
+      begin idref := eval_exp env exp; !idref end
+(*
   | BeginExp body ->
-      eval_body env body
+      eval_exp env body
+ *)
+  | SeqExp (x, y) ->
+      eval_exp env x; eval_exp env y
 
        
 and eval_sexp = function
@@ -169,17 +172,23 @@ and eval_apply (proc: exval) (args: exval list) =
     | ProcV (ids, body, envproc) -> (* envproc: lambdaを評価したときの環境 *)
         (* パラメータの数のチェックが必要 *)
         if List.length ids = List.length args then
-          eval_body (extend_env_exval ids args envproc) body
+          eval_exp (extend_env_exval ids args envproc) body
 	else 
           failwith "# of parameters and arguments don't match"
     | PrimV closure ->
         closure args
     | _ -> failwith "Applying a non-procedure value")
 
+(*
+and eval_body env =
+  eval_exp env
+ *)
+(*
 and eval_body env = function
   | S e -> eval_exp env e
   | P (e,rest) -> eval_exp env e;
                   eval_body env rest
+ *)
 
 and extend_env_rec_exp env binds =
   let syms, explist = List.split binds in
@@ -234,23 +243,23 @@ let rec equalp x y =
 
 let global_env =
   let prims = [
-  "+",(fun args ->
+  "+",(
     let rec loop = function
-      | [IntV i; IntV j] -> i + j
+      | [IntV i] -> i
       | IntV a :: tl -> a + loop tl 
       | _ -> failwith "Arity mismatch: +"
-    in IntV (loop args));
+    in fun args -> IntV (loop args));
   "-",(fun args ->
     let rec f = function
         [IntV i; IntV j] -> i - j
       | _ -> failwith "Arity mismatch: -"
     in IntV (f args));
-  "*",(fun args ->
+  "*",(
     let rec loop = function
-        [IntV i; IntV j] -> i * j
+        [IntV i] -> i
       | IntV a :: tl -> a * loop tl 
       | _ -> failwith "Arity mismatch: *"
-    in IntV (loop args));
+    in fun args -> IntV (loop args));
   "add1", (function
       [IntV i] -> IntV (i + 1)
     | _ -> failwith "Arity mismatch: add1");

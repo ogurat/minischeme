@@ -33,20 +33,22 @@ type exp =
   | DefineExp of bind
   | LambdaExp of lambdaexp
   | ApplyExp of exp * exp list
-(*  | LetExp of (id * exp) list * bodyexp *)
-  | NamedLetExp of id * (id * exp) list * bodyexp
-  | LetrecExp of (id * exp) list * bodyexp
-(*  | LetrecExp of (id * lambdaexp) list * bodyexp *)
+(*  | LetExp of (id * exp) list * exp *)
+  | NamedLetExp of id * (id * exp) list * exp
+  | LetrecExp of (id * exp) list * exp
+(*  | LetrecExp of (id * lambdaexp) list * exp *)
   | CondExp of conditem list
   | AssignExp of id * exp
-  | BeginExp of bodyexp
-and lambdaexp = id list * bodyexp
+(*  | BeginExp of exp *)
+  | SeqExp of exp * exp
+and lambdaexp = id list * exp
+(*
 and bodyexp = | S of exp | P of exp * bodyexp
-
+ *)
 and conditem =
-  | Case of exp * bodyexp
+  | Case of exp * exp
   | Arrow of exp * exp
-  | Else of bodyexp
+  | Else of exp
 and bind = id * exp
 
 type program =  Prog of exp
@@ -62,7 +64,7 @@ let parseLet binds body =
 let parseNamedLet name binds body =
   let ids, args = List.split binds in
   let fn = LambdaExp(ids, body) in
-  let l = LetrecExp ([(name, fn)], S (VarExp name)) in
+  let l = LetrecExp ([(name, fn)], VarExp name) in
   ApplyExp (l, args) 
 
 let parseNamedLet' names binds body =
@@ -81,32 +83,37 @@ let parseCond vs =
     | case :: rest ->
       (match case with
          | Case (cond, body) ->
-             IfExp (cond, (BeginExp body), make rest)
+             IfExp (cond, body, make rest)
          | Arrow (cond, fn) -> (* temp を隠してしまう*)
 	     let apv = ApplyExp (fn, [VarExp "temp"]) in
 	     let body = IfExp (VarExp "temp", apv, make rest) in
-             parseLet [("temp", cond)] (S body)
-         | Else body -> BeginExp body)
+             parseLet [("temp", cond)]  body
+         | Else body -> body)
   in make vs
 
 
 
+(*
 
-let rec explist_to_body = function
-    [x] -> S x
-  | x :: rest  -> P (x, explist_to_body rest)
-
+let rec explist_to_seq = function
+    [x] -> x
+  | x :: rest -> SeqExp (x, explist_to_seq rest)
+ *)
+(*
 let explist_to_begin = function
     [x] -> x
   | x :: rest -> BeginExp (P(x, explist_to_body rest))
+ *)
 (*
 let explist_to_beginn = function
     [x] -> x
   | x -> Beginn x
 *)
+(*
 let rec body_to_explist = function
   | S x -> [x]
   | P (x, rest) -> x :: body_to_explist rest
+ *)
 (*
 let body_to_begin x =
    match (body_to_explist x) with

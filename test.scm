@@ -29,9 +29,10 @@
       (fold func (func accum (car lst)) (cdr lst))))
 
 
-(define (assq obj alist)  (fold (mem-helper (curry eq? obj) car) #f alist))
-(define (assv obj alist)  (fold (mem-helper (curry eqv? obj) car) #f alist))
-(define (assoc obj alist) (fold (mem-helper (curry equal? obj) car) #f alist))
+(define (assq obj lst)  (fold (mem-helper (curry eq? obj) car) #f lst))
+(define (assv obj lst)  (fold (mem-helper (curry eqv? obj) car) #f lst))
+(define (assoc obj lst) (fold (mem-helper (curry equal? obj) car) #f lst))
+
 
 
 (define (cadr x) (car (cdr x)))
@@ -57,9 +58,10 @@
           b
           (iter (+ a b) a (- count 1))))))
 
-(define abc
-  (let f ((x '(1 2 3)) (y '(a b c d)))
-    (if (null? x) 'ghj (f (cdr x) (cdr y)))))
+(define (abc)
+  (let f ((x '(x y z)) (y '(a b c d e)))
+    'f 'g 'h
+    (if (null? x) y (f (cdr x) (cdr y)))))
 
 
 
@@ -91,7 +93,7 @@
            1
            (* k (ft ft (- k 1))))))))
 
-(define (evv x)
+(define (even? x)
   (letrec
       ((zero?  (lambda (n) (= n 0)))
        (even?? (lambda (n)
@@ -102,4 +104,14 @@
                  (if (zero? n)
                      #f
                      (even?? (- n 1))))))
+    'a 'b 'c 'd
     (even?? x)))
+
+(define (con x)
+  (cond ((= x 1) 'a 'b 'c)
+        (else 'x 'y)))
+
+(define (a2 x)
+  (if (> x 2)
+      (begin 'a 'b 'c 'd x)
+      (+ x 1)))

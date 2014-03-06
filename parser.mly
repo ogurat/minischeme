@@ -61,7 +61,8 @@ FormExp :
   | Exp Explist { ApplyExp ($1, $2) }
   | LETREC LPAREN LambdaBindings RPAREN Body { LetrecExp ($3, $5) }
   | SET ID Exp  { AssignExp ($2, $3) }
-  | BEGIN Body { BeginExp $2 }
+  | BEGIN Body { $2 }
+/*  | BEGIN Body { BeginExp $2 } */
   | QUOTE Sexp  { QuoteExp ($2) }
 
 Sexp :
@@ -99,11 +100,14 @@ LambdaBindings :
 IDlist :
   | { [] }
   | ID IDlist { $1 :: $2 }
-
+Body :
+  | Exp { $1 }
+  | Exp Body { SeqExp ($1, $2) }
+/*
 Body :
   | Exp      { S $1 } 
   | Exp Body { P ($1, $2) }
-
+*/
 Explist :
   | { [] }
   | Exp Explist { $1 :: $2 }
